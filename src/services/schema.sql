@@ -360,3 +360,61 @@ END $$;
 -- Vérification
 SELECT 'Applications créées:' as info, COUNT(*) as count FROM public.applications;
 SELECT 'Abonnements avec application_id:' as info, COUNT(*) as count FROM public.abonnements WHERE application_id IS NOT NULL;
+-- Créer la table installations
+CREATE TABLE IF NOT EXISTS public.installations (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
+    application_id UUID NOT NULL REFERENCES public.applications(id) ON DELETE CASCADE,
+    montant DECIMAL(10, 2) NOT NULL,
+    statut VARCHAR(50) NOT NULL CHECK (statut IN ('active', 'suspendu', 'prochainement')),
+    date_debut DATE NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Créer les index pour améliorer les performances
+CREATE INDEX IF NOT EXISTS idx_installations_client_id ON public.installations(client_id);
+CREATE INDEX IF NOT EXISTS idx_installations_application_id ON public.installations(application_id);
+CREATE INDEX IF NOT EXISTS idx_installations_statut ON public.installations(statut);
+CREATE INDEX IF NOT EXISTS idx_installations_date_debut ON public.installations(date_debut);
+
+-- Créer un trigger pour mettre à jour updated_at automatiquement
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = TIMEZONE('utc'::text, NOW());
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_installations_updated_at BEFORE UPDATE ON public.installations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Activer RLS (Row Level Security)
+ALTER TABLE public.installations ENABLE ROW LEVEL SECURITY;
+
+-- Créer les politiques RLS
+CREATE POLICY "Enable read access for authenticated users" ON public.installations
+    FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Enable insert for authenticated users" ON public.installations
+    FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Enable update for authenticated users" ON public.installations
+    FOR UPDATE USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Enable delete for authenticated users" ON public.installations
+    FOR DELETE USING (auth.role() = 'authenticated');
+
+-- Commentaires sur la table et les colonnes
+COMMENT ON TABLE public.installations IS 'Table pour gérer les installations d''applications chez les clients';
+COMMENT ON COLUMN public.installations.id IS 'Identifiant unique de l''installation';
+COMMENT ON COLUMN public.installations.client_id IS 'Référence au client';
+COMMENT ON COLUMN public.installations.application_id IS 'Référence à l''application installée';
+COMMENT ON COLUMN public.installations.montant IS 'Montant de l''installation';
+COMMENT ON COLUMN public.installations.statut IS 'Statut de l''installation: active, suspendu, prochainement';
+COMMENT ON COLUMN public.installations.date_debut IS 'Date de début de l''installation';
+COMMENT ON COLUMN public.installations.notes IS 'Notes additionnelles sur l''installation';
+COMMENT ON COLUMN public.installations.created_at IS 'Date de création de l''enregistrement';
+COMMENT ON COLUMN public.installations.updated_at IS 'Date de dernière mise à jour de l''enregistrement';

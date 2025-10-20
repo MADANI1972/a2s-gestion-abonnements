@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, AlertCircle, TrendingUp, Calendar, RefreshCw, ArrowUp, ArrowDown, Brain, Activity, Target, Zap, Filter, X } from 'lucide-react';
+import { Users, DollarSign, AlertCircle, TrendingUp, Calendar, RefreshCw, ArrowUp, ArrowDown, Brain, Activity, Target, Zap, Filter, X, Download } from 'lucide-react';
 import clientsService from '../services/clientsService';
 import abonnementsService from '../services/abonnementsService';
 import paiementsService from '../services/paiementsService';
+import installationsService from '../services/installationsService';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
     totalClients: 0,
     abonnementsActifs: 0,
     revenus: 0,
-    alertes: 0
+    alertes: 0,
+    installationsActives: 0,
+    installationsProchainement: 0
   });
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);
@@ -17,7 +20,7 @@ const Dashboard = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // 📅 NOUVEAUX ÉTATS POUR LE FILTRE PAR DATE
+  // 📅 ÉTATS POUR LE FILTRE PAR DATE
   const [dateDebut, setDateDebut] = useState('');
   const [dateFin, setDateFin] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -66,10 +69,11 @@ const Dashboard = () => {
     try {
       setLoading(true);
 
-      const [clientsData, abonnementsData, paiementsData] = await Promise.all([
+      const [clientsData, abonnementsData, paiementsData, installationsData] = await Promise.all([
         clientsService.getAll(),
         abonnementsService.getAll(),
-        paiementsService.getAll()
+        paiementsService.getAll(),
+        installationsService.getAll()
       ]);
 
       setClients(clientsData || []);
@@ -83,6 +87,10 @@ const Dashboard = () => {
         ? filterDataByDate(paiementsData, 'date_paiement')
         : paiementsData;
 
+      const filteredInstallations = (dateDebut || dateFin)
+        ? filterDataByDate(installationsData, 'date_debut')
+        : installationsData;
+
       // Calculer les statistiques avec les données filtrées
       const totalClients = clientsData?.length || 0;
       
@@ -93,6 +101,10 @@ const Dashboard = () => {
       const revenus = filteredPaiements
         ?.filter(p => p.statut === 'valide')
         .reduce((sum, p) => sum + parseFloat(p.montant || 0), 0) || 0;
+
+      // ⬇️ STATISTIQUES INSTALLATIONS
+      const installationsActives = filteredInstallations?.filter(i => i.statut === 'active').length || 0;
+      const installationsProchainement = filteredInstallations?.filter(i => i.statut === 'prochainement').length || 0;
 
       // Calculer les alertes
       const today = new Date();
@@ -124,15 +136,17 @@ const Dashboard = () => {
         totalClients,
         abonnementsActifs,
         revenus,
-        alertes: alertes.length
+        alertes: alertes.length,
+        installationsActives,
+        installationsProchainement
       });
 
       // 🤖 ANALYSE IA avec les données filtrées
-      const analysis = analyzePaymentsWithAI(filteredPaiements, filteredAbonnements, clientsData);
+      const analysis = analyzePaymentsWithAI(filteredPaiements, filteredAbonnements, clientsData, filteredInstallations);
       setAiAnalysis(analysis);
 
       // Créer les activités récentes avec les données filtrées
-      const activities = generateActivities(clientsData, filteredAbonnements, filteredPaiements);
+      const activities = generateActivities(clientsData, filteredAbonnements, filteredPaiements, filteredInstallations);
       setRecentActivities(activities.slice(0, 6));
 
     } catch (error) {
@@ -142,8 +156,8 @@ const Dashboard = () => {
     }
   };
 
-  // 🤖 FONCTION D'ANALYSE IA
-  const analyzePaymentsWithAI = (paiements, abonnements, clients) => {
+  // 🤖 FONCTION D'ANALYSE IA - Mise à jour avec installations
+  const analyzePaymentsWithAI = (paiements, abonnements, clients, installations) => {
     if (!paiements || paiements.length === 0) {
       return {
         score: 0,
@@ -196,14 +210,20 @@ const Dashboard = () => {
       return joursRestants <= 15 && joursRestants > 0 && a.statut_abonnement === 'actif';
     }).length;
 
-    // 7. SCORE DE SANTÉ FINANCIÈRE (0-100)
+    // ⬇️ 7. ANALYSE DES INSTALLATIONS
+    const installationsActives = installations?.filter(i => i.statut === 'active').length || 0;
+    const installationsSuspendues = installations?.filter(i => i.statut === 'suspendu').length || 0;
+    const installationsProchainement = installations?.filter(i => i.statut === 'prochainement').length || 0;
+
+    // 8. SCORE DE SANTÉ FINANCIÈRE (0-100)
     let score = 50;
     score += Math.min(croissance, 30);
     score -= tauxRetard * 0.5;
     score += Math.min((paiements30j.length / 10) * 5, 20);
+    score += Math.min((installationsActives / 5) * 5, 10); // Bonus pour installations actives
     score = Math.max(0, Math.min(100, score));
 
-    // 8. INSIGHTS INTELLIGENTS
+    // 9. INSIGHTS INTELLIGENTS
     const insights = [];
     
     if (croissance > 15) {
@@ -222,9 +242,22 @@ const Dashboard = () => {
       insights.push(`⏰ ${clientsARisque} clients à renouveler dans les 15 prochains jours`);
     }
 
+    // ⬇️ INSIGHTS INSTALLATIONS
+    if (installationsActives > 0) {
+      insights.push(`⬇️ ${installationsActives} installations actives en production`);
+    }
+
+    if (installationsProchainement > 3) {
+      insights.push(`📅 ${installationsProchainement} installations prévues prochainement`);
+    }
+
+    if (installationsSuspendues > 2) {
+      insights.push(`⚠️ ${installationsSuspendues} installations suspendues nécessitent attention`);
+    }
+
     insights.push(`💳 Méthode préférée : ${methodePreferee.replace('_', ' ').toUpperCase()}`);
 
-    // 9. RECOMMANDATIONS IA
+    // 10. RECOMMANDATIONS IA
     const recommendations = [];
 
     if (croissance < 0) {
@@ -251,6 +284,23 @@ const Dashboard = () => {
       });
     }
 
+    // ⬇️ RECOMMANDATIONS INSTALLATIONS
+    if (installationsSuspendues > 2) {
+      recommendations.push({
+        icon: '🔧',
+        title: 'Réactiver les installations suspendues',
+        description: `${installationsSuspendues} installations en attente de réactivation`
+      });
+    }
+
+    if (installationsProchainement > 5) {
+      recommendations.push({
+        icon: '📋',
+        title: 'Préparer les déploiements',
+        description: `${installationsProchainement} installations à planifier et coordonner`
+      });
+    }
+
     if (abonnements.length > clients.length * 0.7) {
       recommendations.push({
         icon: '🚀',
@@ -259,7 +309,7 @@ const Dashboard = () => {
       });
     }
 
-    // 10. PRÉDICTIONS
+    // 11. PRÉDICTIONS
     const predictions = [
       {
         periode: '30 prochains jours',
@@ -276,6 +326,9 @@ const Dashboard = () => {
       revenu30j,
       revenu60j,
       clientsARisque,
+      installationsActives,
+      installationsSuspendues,
+      installationsProchainement,
       predictions,
       insights,
       recommendations,
@@ -283,9 +336,10 @@ const Dashboard = () => {
     };
   };
 
-  const generateActivities = (clientsData, abonnementsData, paiementsData) => {
+  const generateActivities = (clientsData, abonnementsData, paiementsData, installationsData) => {
     const activities = [];
 
+    // Clients récents
     const recentClients = [...(clientsData || [])]
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 2);
@@ -301,6 +355,7 @@ const Dashboard = () => {
       });
     });
 
+    // Abonnements récents
     const recentAbonnements = [...(abonnementsData || [])]
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 2);
@@ -317,6 +372,7 @@ const Dashboard = () => {
       });
     });
 
+    // Paiements récents
     const recentPaiements = [...(paiementsData || [])]
       .sort((a, b) => new Date(b.date_paiement) - new Date(a.date_paiement))
       .slice(0, 2);
@@ -334,6 +390,25 @@ const Dashboard = () => {
           : `${parseFloat(paiement.montant).toLocaleString()} DA`,
         time: formatTimeAgo(paiement.date_paiement),
         color: 'purple'
+      });
+    });
+
+    // ⬇️ INSTALLATIONS RÉCENTES
+    const recentInstallations = [...(installationsData || [])]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 2);
+
+    recentInstallations.forEach(installation => {
+      const client = clientsData?.find(c => c.id === installation.client_id);
+      activities.push({
+        type: 'installation',
+        icon: 'download',
+        title: 'Nouvelle installation',
+        description: client 
+          ? `${client.nom} ${client.prenom} - ${installation.application}`
+          : installation.application,
+        time: formatTimeAgo(installation.created_at),
+        color: 'orange'
       });
     });
 
@@ -376,7 +451,8 @@ const Dashboard = () => {
     const icons = {
       user: <Users className="w-4 h-4" />,
       calendar: <Calendar className="w-4 h-4" />,
-      dollar: <DollarSign className="w-4 h-4" />
+      dollar: <DollarSign className="w-4 h-4" />,
+      download: <Download className="w-4 h-4" />
     };
 
     return (
@@ -443,11 +519,8 @@ const Dashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Date Début */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Du
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Du</label>
                 <input
                   type="date"
                   value={dateDebut}
@@ -456,11 +529,8 @@ const Dashboard = () => {
                 />
               </div>
 
-              {/* Date Fin */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Au
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Au</label>
                 <input
                   type="date"
                   value={dateFin}
@@ -470,7 +540,6 @@ const Dashboard = () => {
                 />
               </div>
 
-              {/* Boutons Actions */}
               <div className="sm:col-span-2 flex gap-2">
                 <button
                   onClick={appliquerFiltre}
@@ -490,7 +559,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Indicateur de période active */}
             {isFiltered && (dateDebut || dateFin) && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
@@ -508,8 +576,8 @@ const Dashboard = () => {
         )}
       </div>
 
-      {/* Stats Cards - Grid Responsive */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+      {/* Stats Cards - Grid Responsive avec Installations */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-6 sm:mb-8">
         {/* Card 1 - Total Clients */}
         <div className="stat-card bg-white p-4 sm:p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow">
           <div className="flex items-center justify-between">
@@ -575,6 +643,23 @@ const Dashboard = () => {
             </div>
             <div className="bg-red-100 p-2 sm:p-3 rounded-full">
               <AlertCircle className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" />
+            </div>
+          </div>
+        </div>
+
+        {/* ⬇️ Card 5 - INSTALLATIONS (NOUVELLE) */}
+        <div className="stat-card bg-white p-4 sm:p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-gray-500 text-xs sm:text-sm font-medium">Installations</p>
+              <p className="text-2xl sm:text-3xl font-bold text-orange-600 mt-1 sm:mt-2">{stats.installationsActives}</p>
+              <div className="flex items-center gap-1 mt-1 sm:mt-2">
+                <Download className="w-3 h-3 sm:w-4 sm:h-4 text-orange-600" />
+                <p className="text-xs text-orange-600">{stats.installationsProchainement} prochainement</p>
+              </div>
+            </div>
+            <div className="bg-orange-100 p-2 sm:p-3 rounded-full">
+              <Download className="w-6 h-6 sm:w-8 sm:h-8 text-orange-600" />
             </div>
           </div>
         </div>

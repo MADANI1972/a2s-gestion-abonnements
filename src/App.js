@@ -1,4 +1,4 @@
-// src/App.js - Version avec AuthContext et Navigation corrigée
+// src/App.js - Version avec AuthContext, Navigation et Installations
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { Menu, X, Bell, LogOut } from 'lucide-react';
@@ -12,6 +12,7 @@ import Abonnements from './components/Abonnements';
 import Paiements from './components/Paiements';
 import Alertes from './components/Alertes';
 import Applications from './components/Applications';
+import Installations from './components/Installations'; // ⬇️ NOUVEAU
 import Utilisateurs from './components/Utilisateurs';
 
 // Composant Layout (le contenu principal avec sidebar)
@@ -51,11 +52,13 @@ function AppLayout() {
     return <Login />;
   }
 
+  // ⬇️ NAVIGATION MISE À JOUR - Installations ajouté, Services supprimé
   const navigationItems = [
     { path: '/dashboard', icon: '📊', label: 'Tableau de Bord' },
     { path: '/clients', icon: '👥', label: 'Clients' },
     { path: '/abonnements', icon: '📅', label: 'Abonnements' },
     { path: '/paiements', icon: '💳', label: 'Paiements' },
+    { path: '/installations', icon: '⬇️', label: 'Installations' }, // ⬇️ NOUVEAU
     { path: '/alertes', icon: '🔔', label: 'Alertes' },
     { path: '/applications', icon: '📦', label: 'Applications' },
     { path: '/utilisateurs', icon: '⚙️', label: 'Utilisateurs' }
@@ -179,6 +182,7 @@ function AppLayout() {
             <Route path="/clients" element={<Clients />} />
             <Route path="/abonnements" element={<Abonnements />} />
             <Route path="/paiements" element={<Paiements />} />
+            <Route path="/installations" element={<Installations />} /> {/* ⬇️ NOUVEAU */}
             <Route path="/alertes" element={<Alertes />} />
             <Route path="/applications" element={<Applications />} />
             <Route path="/utilisateurs" element={<Utilisateurs />} />
@@ -199,5 +203,4 @@ function App() {
     </AuthProvider>
   );
 }
-
 export default App;
